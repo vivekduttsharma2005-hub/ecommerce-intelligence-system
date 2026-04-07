@@ -31,7 +31,6 @@ st.markdown("""
 # LOAD DATA
 # ──────────────────────────────────────────────
 @st.cache_data
-
 def load_data():
     df = pd.read_csv("data_sample.csv", encoding="ISO-8859-1")
 
@@ -43,14 +42,8 @@ def load_data():
     # Feature engineering
     df["TotalPrice"] = df["Quantity"] * df["UnitPrice"]
 
-    # Fix date parsing (VERY IMPORTANT)
-    df["InvoiceDate"] = pd.to_datetime(
-        df["InvoiceDate"],
-        dayfirst=True,
-        errors="coerce"   # prevents crash
-    )
-
-    # Drop invalid dates
+    # Fix date parsing
+    df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"], dayfirst=True, errors="coerce")
     df = df.dropna(subset=["InvoiceDate"])
 
     # Convert CustomerID
@@ -59,6 +52,12 @@ def load_data():
     return df
 
 df = load_data()
+
+# ──────────────────────────────────────────────
+# CONVERT GBP TO INR
+# ──────────────────────────────────────────────
+GBP_to_INR = 102.5  # update as per current exchange rate
+df["TotalPrice_INR"] = df["TotalPrice"] * GBP_to_INR
 
 # ──────────────────────────────────────────────
 # SIDEBAR
@@ -74,7 +73,7 @@ page = st.sidebar.radio("Navigate", [
 ])
 
 # ──────────────────────────────────────────────
-# DATE FILTER (shared across pages)
+# DATE FILTER
 # ──────────────────────────────────────────────
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Date range**")
@@ -99,7 +98,7 @@ if dff.empty:
 if page == "📊 Dashboard":
     st.title("📊 Sales Dashboard")
 
-    total_revenue = dff["TotalPrice"].sum()
+    total_revenue = dff["TotalPrice_INR"].sum()
     total_orders  = dff["InvoiceNo"].nunique()
     total_customers = dff["CustomerID"].nunique()
     avg_order_value = total_revenue / total_orders if total_orders else 0
@@ -108,7 +107,7 @@ if page == "📊 Dashboard":
     for col, label, value in zip(
         [c1, c2, c3, c4],
         ["Total Revenue", "Total Orders", "Unique Customers", "Avg Order Value"],
-        [f"£{total_revenue:,.0f}", f"{total_orders:,}", f"{total_customers:,}", f"£{avg_order_value:,.2f}"]
+        [f"₹{total_revenue:,.0f}", f"{total_orders:,}", f"{total_customers:,}", f"₹{avg_order_value:,.2f}"]
     ):
         col.markdown(f"""
         <div class="metric-card">
@@ -120,13 +119,13 @@ if page == "📊 Dashboard":
     st.markdown("<div class='section-header'>Monthly Revenue</div>", unsafe_allow_html=True)
     monthly = (
         dff.set_index("InvoiceDate")
-        .resample("ME")["TotalPrice"]
+        .resample("ME")["TotalPrice_INR"]
         .sum()
         .reset_index()
     )
     fig_rev = px.area(
-        monthly, x="InvoiceDate", y="TotalPrice",
-        labels={"InvoiceDate": "Month", "TotalPrice": "Revenue (£)"},
+        monthly, x="InvoiceDate", y="TotalPrice_INR",
+        labels={"InvoiceDate": "Month", "TotalPrice_INR": "Revenue (₹)"},
         color_discrete_sequence=["#4361ee"]
     )
     fig_rev.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=320)
@@ -137,15 +136,15 @@ if page == "📊 Dashboard":
     with col_a:
         st.markdown("<div class='section-header'>Top 10 Products by Revenue</div>", unsafe_allow_html=True)
         top_products = (
-            dff.groupby("Description")["TotalPrice"]
+            dff.groupby("Description")["TotalPrice_INR"]
             .sum()
             .sort_values(ascending=False)
             .head(10)
             .reset_index()
         )
         fig_prod = px.bar(
-            top_products, x="TotalPrice", y="Description", orientation="h",
-            labels={"TotalPrice": "Revenue (£)", "Description": ""},
+            top_products, x="TotalPrice_INR", y="Description", orientation="h",
+            labels={"TotalPrice_INR": "Revenue (₹)", "Description": ""},
             color_discrete_sequence=["#7209b7"]
         )
         fig_prod.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=360, yaxis=dict(autorange="reversed"))
@@ -154,15 +153,15 @@ if page == "📊 Dashboard":
     with col_b:
         st.markdown("<div class='section-header'>Revenue by Country</div>", unsafe_allow_html=True)
         top_countries = (
-            dff.groupby("Country")["TotalPrice"]
+            dff.groupby("Country")["TotalPrice_INR"]
             .sum()
             .sort_values(ascending=False)
             .head(10)
             .reset_index()
         )
         fig_country = px.bar(
-            top_countries, x="Country", y="TotalPrice",
-            labels={"TotalPrice": "Revenue (£)", "Country": ""},
+            top_countries, x="Country", y="TotalPrice_INR",
+            labels={"TotalPrice_INR": "Revenue (₹)", "Country": ""},
             color_discrete_sequence=["#f72585"]
         )
         fig_country.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=360)
@@ -179,10 +178,9 @@ elif page == "👥 Customer Segmentation":
     rfm = dff.groupby("CustomerID").agg(
         Recency=("InvoiceDate", lambda x: (snapshot_date - x.max()).days),
         Frequency=("InvoiceNo", "nunique"),
-        Monetary=("TotalPrice", "sum")
+        Monetary=("TotalPrice_INR", "sum")
     ).reset_index()
 
-    # Fix: normalize before KMeans
     scaler = StandardScaler()
     rfm_scaled = scaler.fit_transform(rfm[["Recency", "Frequency", "Monetary"]])
 
@@ -199,7 +197,7 @@ elif page == "👥 Customer Segmentation":
         fig_scatter = px.scatter(
             rfm, x="Recency", y="Monetary", color="Segment",
             hover_data=["CustomerID", "Frequency"],
-            labels={"Recency": "Days since last purchase", "Monetary": "Total spend (£)"},
+            labels={"Recency": "Days since last purchase", "Monetary": "Total spend (₹)"},
             color_discrete_sequence=px.colors.qualitative.Bold
         )
         fig_scatter.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=380)
@@ -210,7 +208,7 @@ elif page == "👥 Customer Segmentation":
         fig_scatter2 = px.scatter(
             rfm, x="Frequency", y="Monetary", color="Segment",
             hover_data=["CustomerID", "Recency"],
-            labels={"Frequency": "Number of orders", "Monetary": "Total spend (£)"},
+            labels={"Frequency": "Number of orders", "Monetary": "Total spend (₹)"},
             color_discrete_sequence=px.colors.qualitative.Bold
         )
         fig_scatter2.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=380)
@@ -234,10 +232,9 @@ elif page == "👥 Customer Segmentation":
 elif page == "📈 Demand Forecasting":
     st.title("📈 Demand Forecasting")
 
-    # Prepare time series
     ts = (
         dff.set_index("InvoiceDate")
-        .resample("D")["TotalPrice"]
+        .resample("D")["TotalPrice_INR"]
         .sum()
         .reset_index()
     )
@@ -246,55 +243,30 @@ elif page == "📈 Demand Forecasting":
 
     horizon = st.slider("Forecast horizon (days)", 7, 90, 30)
 
-    # TRY PROPHET FIRST
     try:
         from prophet import Prophet
-
         with st.spinner("Training Prophet model..."):
-            model = Prophet(
-                yearly_seasonality=True,
-                weekly_seasonality=True,
-                daily_seasonality=False,
-                interval_width=0.90
-            )
+            model = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False, interval_width=0.90)
             model.fit(ts)
             future = model.make_future_dataframe(periods=horizon)
             forecast = model.predict(future)
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=ts["ds"], y=ts["y"],
-            name="Actual", line=dict(color="#4361ee", width=1.5)
-        ))
-        fig.add_trace(go.Scatter(
-            x=forecast["ds"], y=forecast["yhat"],
-            name="Forecast", line=dict(color="#f72585", width=2, dash="dash")
-        ))
+        fig.add_trace(go.Scatter(x=ts["ds"], y=ts["y"], name="Actual", line=dict(color="#4361ee", width=1.5)))
+        fig.add_trace(go.Scatter(x=forecast["ds"], y=forecast["yhat"], name="Forecast", line=dict(color="#f72585", width=2, dash="dash")))
 
         st.plotly_chart(fig, use_container_width=True)
-
         st.success("Using Prophet model ✅")
 
     except Exception as e:
         st.warning("Prophet not supported in this environment ⚠️")
-        
-        # FALLBACK: MOVING AVERAGE FORECAST
         ts["Forecast"] = ts["y"].rolling(window=7).mean()
-
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=ts["ds"], y=ts["y"],
-            name="Actual"
-        ))
-        fig.add_trace(go.Scatter(
-            x=ts["ds"], y=ts["Forecast"],
-            name="Forecast (7-day avg)",
-            line=dict(dash="dash")
-        ))
-
+        fig.add_trace(go.Scatter(x=ts["ds"], y=ts["y"], name="Actual"))
+        fig.add_trace(go.Scatter(x=ts["ds"], y=ts["Forecast"], name="Forecast (7-day avg)", line=dict(dash="dash")))
         st.plotly_chart(fig, use_container_width=True)
-
         st.info("Fallback model used: Moving Average")
+
 # ══════════════════════════════════════════════
 # PAGE 4 — RECOMMENDATIONS
 # ══════════════════════════════════════════════
@@ -303,22 +275,11 @@ elif page == "🤖 Recommendations":
 
     @st.cache_data
     def build_recommendation_model(data):
-        # Build user-item matrix (rows = customers, cols = products)
-        user_item = (
-            data.groupby(["CustomerID", "Description"])["Quantity"]
-            .sum()
-            .unstack(fill_value=0)
-        )
-        # Compute cosine similarity between customers
+        user_item = data.groupby(["CustomerID", "Description"])["Quantity"].sum().unstack(fill_value=0)
         similarity = cosine_similarity(user_item)
-        sim_df = pd.DataFrame(
-            similarity,
-            index=user_item.index,
-            columns=user_item.index
-        )
+        sim_df = pd.DataFrame(similarity, index=user_item.index, columns=user_item.index)
         return user_item, sim_df
 
-    # Limit to top products for performance
     top_n_products = 200
     top_products = dff["Description"].value_counts().head(top_n_products).index
     dff_filtered = dff[dff["Description"].isin(top_products)]
@@ -328,39 +289,23 @@ elif page == "🤖 Recommendations":
 
     customer_ids = sorted(user_item_matrix.index.tolist())
     selected_customer = st.selectbox("Select a customer ID", customer_ids)
-
     n_recommendations = st.slider("Number of recommendations", 3, 15, 5)
 
     def get_recommendations(customer_id, user_item, sim_matrix, n=5):
         if customer_id not in sim_matrix.index:
             return pd.Series(dtype=float)
-
-        # Find most similar customers (excluding self)
-        similar_customers = (
-            sim_matrix[customer_id]
-            .drop(customer_id)
-            .sort_values(ascending=False)
-            .head(10)
-        )
-
-        # Products already bought by this customer
+        similar_customers = sim_matrix[customer_id].drop(customer_id).sort_values(ascending=False).head(10)
         already_bought = set(user_item.loc[customer_id][user_item.loc[customer_id] > 0].index)
-
-        # Weighted score from similar customers
         scores = {}
         for sim_customer, similarity_score in similar_customers.items():
             for product, qty in user_item.loc[sim_customer].items():
                 if qty > 0 and product not in already_bought:
                     scores[product] = scores.get(product, 0) + similarity_score * qty
-
         return pd.Series(scores).sort_values(ascending=False).head(n)
 
-    recommendations = get_recommendations(
-        selected_customer, user_item_matrix, similarity_matrix, n_recommendations
-    )
+    recommendations = get_recommendations(selected_customer, user_item_matrix, similarity_matrix, n_recommendations)
 
-    col1, col2 = st.columns([1, 1])
-
+    col1, col2 = st.columns([1,1])
     with col1:
         st.markdown("<div class='section-header'>Recommended products</div>", unsafe_allow_html=True)
         if recommendations.empty:
@@ -368,7 +313,7 @@ elif page == "🤖 Recommendations":
         else:
             rec_df = recommendations.reset_index()
             rec_df.columns = ["Product", "Score"]
-            rec_df["Score"] = (rec_df["Score"] / rec_df["Score"].max() * 100).round(1)
+            rec_df["Score"] = (rec_df["Score"]/rec_df["Score"].max()*100).round(1)
             for _, row in rec_df.iterrows():
                 bar_width = int(row["Score"])
                 st.markdown(f"""
@@ -396,9 +341,5 @@ elif page == "🤖 Recommendations":
             labels={"Quantity": "Units bought", "Description": ""},
             color_discrete_sequence=["#7209b7"]
         )
-        fig_hist.update_layout(
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=360,
-            yaxis=dict(autorange="reversed")
-        )
+        fig_hist.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=360, yaxis=dict(autorange="reversed"))
         st.plotly_chart(fig_hist, use_container_width=True)
