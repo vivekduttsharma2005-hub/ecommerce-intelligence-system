@@ -31,14 +31,31 @@ st.markdown("""
 # LOAD DATA
 # ──────────────────────────────────────────────
 @st.cache_data
+
 def load_data():
-    df = pd.read_csv("data.csv", encoding="ISO-8859-1")
+    df = pd.read_csv("data_sample.csv", encoding="ISO-8859-1")
+
+    # Clean data
     df = df.dropna(subset=["CustomerID", "Description"])
     df = df[df["Quantity"] > 0]
     df = df[df["UnitPrice"] > 0]
+
+    # Feature engineering
     df["TotalPrice"] = df["Quantity"] * df["UnitPrice"]
-    df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"], dayfirst=True)
+
+    # Fix date parsing (VERY IMPORTANT)
+    df["InvoiceDate"] = pd.to_datetime(
+        df["InvoiceDate"],
+        dayfirst=True,
+        errors="coerce"   # prevents crash
+    )
+
+    # Drop invalid dates
+    df = df.dropna(subset=["InvoiceDate"])
+
+    # Convert CustomerID
     df["CustomerID"] = df["CustomerID"].astype(int).astype(str)
+
     return df
 
 df = load_data()
