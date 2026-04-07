@@ -85,7 +85,7 @@ streamlit run app.py
 
 ## 🌐 Live Demo
 
-👉 Add your deployed link here (Streamlit Cloud)
+👉 https://ecommerce-intelligence-system-jfvh949jro3qo6v7se3wzn.streamlit.app/
 
 ---
 
